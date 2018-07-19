@@ -1,5 +1,7 @@
 #include "VL53L1X.h"
+#include "mbed.h"
 
+//Serial pc(USBTX,USBRX);
 
 uint8_t configBlock[] = {
   0x29, 0x02, 0x10, 0x00, 0x28, 0xBC, 0x7A, 0x81, //8
@@ -20,13 +22,52 @@ uint8_t configBlock[] = {
   0x0D, 0x0E, 0x0E, 0x01, 0x00, 0x02, 0xC7, 0xFF, //128
   0x8B, 0x00, 0x00, 0x00, 0x01, 0x01, 0x40 //129 - 135 (0x81 - 0x87)
 };
-//VL6180x::VL6180x(PinName sda, PinName scl, uint8_t addr) : m_i2c(sda, scl), m_addr(addr) {}
 
 VL53L1X::VL53L1X(PinName SDA, PinName SCL) : _i2c(SDA,SCL){
     //Set I2C fast and bring reset line high
- //   _i2c.frequency(400000);
+   _i2c.frequency(400000);
     _deviceAddress = defaultAddress_VL53L1X;
     }
+    
+bool VL53L1X::begin()
+{
+//  _deviceAddress = defaultAddress_VL53L1X; //If provided, store the I2C address from user
+
+  //We expect caller to begin their I2C port, with the speed of their choice external to the library
+  //But if they forget, we start the hardware here.
+  //_i2c.begin();
+
+  //Check the device ID
+  uint16_t modelID = readRegister16(VL53L1_IDENTIFICATION__MODEL_ID);
+  printf("%x \r\n", modelID);
+  if (modelID != 0xEACC){
+    return (false);
+  }
+  softReset();
+
+  //Polls the bit 0 of the FIRMWARE__SYSTEM_STATUS register to see if the firmware is ready
+  int counter = 0;
+  while (readRegister16(VL53L1_FIRMWARE__SYSTEM_STATUS) & 0x01 == 0)
+  {
+    if (counter++ == 100) return (false); //Sensor timed out
+    wait(1);
+  }
+
+  //Set I2C to 2.8V mode. In this mode 3.3V I2C is allowed.
+  uint16_t result = readRegister16(VL53L1_PAD_I2C_HV__EXTSUP_CONFIG);
+  result = (result & 0xFE) | 0x01;
+  writeRegister16(VL53L1_PAD_I2C_HV__EXTSUP_CONFIG, result);
+
+  //Gets trim resistors from chip
+  for (uint16_t i = 0; i < 36; i++) {
+      uint8_t regVal = readRegister(i + 1);
+      configBlock[i] = regVal;
+  }
+  startMeasurement();
+
+  return (true); //Sensor online!
+}
+
     
 void VL53L1X::startMeasurement(uint8_t offset)
 {
@@ -37,7 +78,7 @@ void VL53L1X::startMeasurement(uint8_t offset)
     uint16_t toSend = I2C_BUFFER_LENGTH - 2; //Max I2C buffer on Arduino is 32, and we need 2 bytes for address
     if (toSend > leftToSend) toSend = leftToSend;
 
-    _i2c.write(address << 1);//    _i2c.beginTransmission(_deviceAddress);
+ //   _i2c.write(address << 1);//    _i2c.beginTransmission(_deviceAddress);
     
     _i2c.write(0); //We're only in lower address space. No MSB needed.
     _i2c.write(address);
@@ -220,8 +261,8 @@ uint8_t VL53L1X::readRegister(uint16_t registerAddr)
   char data_read[1];
   data_write[0] = (registerAddr >> 8) & 0xFF; //MSB of register address 
   data_write[1] = registerAddr & 0xFF; //LSB of register address 
-  _i2c.write(_deviceAddress, data_write, 2,0); 
-  _i2c.read(_deviceAddress,data_read,1,1);
+  _i2c.write(_deviceAddress << 1, data_write, 2,0); 
+  _i2c.read(_deviceAddress << 1,data_read,1,1);
   //Read Data from selected register
   data=data_read[0];
   return data;
@@ -236,8 +277,8 @@ uint16_t VL53L1X::readRegister16(uint16_t registerAddr)
   char data_read[2];
   data_write[0] = (registerAddr >> 8) & 0xFF; //MSB of register address 
   data_write[1] = registerAddr & 0xFF; //LSB of register address 
-  _i2c.write(_deviceAddress, data_write, 2,0); 
-  _i2c.read(_deviceAddress,data_read,2,1);
+  _i2c.write(_deviceAddress << 1, data_write, 2,0); 
+  _i2c.read(_deviceAddress << 1,data_read,2,1);
   data_high = data_read[0]; //Read Data from selected register
   data_low = data_read[1]; //Read Data from selected register
   data = (data_high << 8)|data_low;
