@@ -137,6 +137,7 @@ void VL53L1X::setDistanceMode(uint8_t mode)
     uint8_t periodB;
     uint8_t phaseHigh;
     uint8_t phaseInit;
+    
     switch (mode)
     {
         case 0:
