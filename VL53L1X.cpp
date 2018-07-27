@@ -2,7 +2,7 @@
 #include "mbed.h"
  
 //Serial pc(USBTX,USBRX);
-DigitalOut led1(LED1);
+//DigitalOut led1(LED1);
  
 uint8_t configBlock[] = {
   0x29, 0x02, 0x10, 0x00, 0x28, 0xBC, 0x7A, 0x81, //8
@@ -30,20 +30,12 @@ VL53L1X::VL53L1X(PinName SDA, PinName SCL) : _i2c(SDA,SCL){
     _deviceAddress = defaultAddress_VL53L1X << 1;
     }
     
-bool VL53L1X::begin()
-{
-//  _deviceAddress = defaultAddress_VL53L1X; //If provided, store the I2C address from user
- 
-  //We expect caller to begin their I2C port, with the speed of their choice external to the library
-  //But if they forget, we start the hardware here.
-  //_i2c.begin();
- 
+void VL53L1X::begin()
+{ 
   //Check the device ID
   uint16_t modelID = readRegister16(VL53L1_IDENTIFICATION__MODEL_ID);
-  printf("%x \r\n", modelID);
   if (modelID != 0xEACC){
-    led1 = !led1;
-    return (false);
+    return;// (false);
   }
   softReset();
  
@@ -55,7 +47,7 @@ bool VL53L1X::begin()
   {
     Firmware = readRegister16(VL53L1_FIRMWARE__SYSTEM_STATUS);
     printf("Firmware = %x\r\n", Firmware);
-    if (counter++ == 100) return (false); //Sensor timed out
+    if (counter++ == 100) return; //(false); //Sensor timed out
     wait(.1);
   }
  
@@ -67,13 +59,13 @@ bool VL53L1X::begin()
   //Gets trim resistors from chip
   for (uint16_t i = 0; i < 36; i++) {
       uint8_t regVal = readRegister(i + 1);
- //     if(configBlock[i] != regVal) printf("thanks for letting me know, %d, %x\r\n", i, regVal);
       configBlock[i] = regVal;
   }
-  printf("after being told\r\n");
+  
   startMeasurement();
- // printf("after started \r\n");
-  return (true); //Sensor online!
+  printf("It Blinks!!! \r\n");
+//  return (true); //Sensor online!
+
 }
  
     
@@ -85,29 +77,17 @@ offset = 0; //Start at a location within the configBlock array
   uint8_t leftToSend = sizeof(configBlock) - offset;
   while (leftToSend > 0)
   {
-//    printf("leftToSend = %d \r\n", leftToSend);
 
     data_write[0] = 0; //MSB of register address 
     data_write[1] = address; //LSB of register address 
-  //  _i2c.write(_deviceAddress, data_write, 2); 
     
     uint8_t toSend = 30; //Max I2C buffer on Arduino is 32, and we need 2 bytes for address
     if (toSend > leftToSend) toSend = leftToSend;
     for(int x = 0; x < toSend; x++)
+    {
         data_write[x+2] = configBlock[x+address-1];
-    
+    }
     _i2c.write(_deviceAddress, data_write, toSend+2); 
-//    for(int x = 0; x < toSend+2; x++)
-//        printf("%x \t", data_write[x]);
-    //Wire.beginTransmission(deviceAddress);
-
-  //  _i2c.write(0); //We're only in lower address space. No MSB needed.
-//    printf("not here\r\n");
-  //  _i2c.write(address);
-//    for (int x = 0 ; x < leftToSend ; x++)
-      
-      
- //   Wire.endTransmission();
 
     leftToSend -= toSend;
     address += toSend;
@@ -117,7 +97,6 @@ offset = 0; //Start at a location within the configBlock array
 bool VL53L1X::newDataReady(void)
 {
   int read = readRegister(VL53L1_GPIO__TIO_HV_STATUS);
-  printf("read register %x \r\n", read);
   
   if (read != 0x03) return(true); //New measurement!
   return(false); //No new data
@@ -241,7 +220,6 @@ uint8_t VL53L1X::getRangeStatus()
  
   //Read status
   uint8_t measurementStatus = (readRegister(VL53L1_RESULT__RANGE_STATUS) & 0x1F);
-  //printf("measurement status %d\r\n", measurementStatus);
   //Convert status from one to another - From vl53l1_api.c
   switch (measurementStatus) {
     case VL53L1_DEVICEERROR_GPHSTREAMCOUNT0READY:

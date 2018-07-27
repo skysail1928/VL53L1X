@@ -12,7 +12,7 @@ const char defaultAddress_VL53L1X = 0x29;
 class VL53L1X {
   public:
     VL53L1X(PinName SDA, PinName SCL);
-    bool begin();
+    void begin();
     void softReset(); //Reset the sensor via software
     void startMeasurement(uint8_t offset = 0); //Write a block of bytes to the sensor to configure it to take a measurement
     bool newDataReady(); //Polls the measurement completion bit
