@@ -1,8 +1,9 @@
 #include "VL53L1X.h"
 #include "mbed.h"
-
+ 
 //Serial pc(USBTX,USBRX);
-
+DigitalOut led1(LED1);
+ 
 uint8_t configBlock[] = {
   0x29, 0x02, 0x10, 0x00, 0x28, 0xBC, 0x7A, 0x81, //8
   0x80, 0x07, 0x95, 0x00, 0xED, 0xFF, 0xF7, 0xFD, //16
@@ -22,7 +23,7 @@ uint8_t configBlock[] = {
   0x0D, 0x0E, 0x0E, 0x01, 0x00, 0x02, 0xC7, 0xFF, //128
   0x8B, 0x00, 0x00, 0x00, 0x01, 0x01, 0x40 //129 - 135 (0x81 - 0x87)
 };
-
+ 
 VL53L1X::VL53L1X(PinName SDA, PinName SCL) : _i2c(SDA,SCL){
     //Set I2C fast and bring reset line high
    _i2c.frequency(400000);
@@ -32,19 +33,20 @@ VL53L1X::VL53L1X(PinName SDA, PinName SCL) : _i2c(SDA,SCL){
 bool VL53L1X::begin()
 {
 //  _deviceAddress = defaultAddress_VL53L1X; //If provided, store the I2C address from user
-
+ 
   //We expect caller to begin their I2C port, with the speed of their choice external to the library
   //But if they forget, we start the hardware here.
   //_i2c.begin();
-
+ 
   //Check the device ID
   uint16_t modelID = readRegister16(VL53L1_IDENTIFICATION__MODEL_ID);
   printf("%x \r\n", modelID);
   if (modelID != 0xEACC){
+    led1 = !led1;
     return (false);
   }
   softReset();
-
+ 
   //Polls the bit 0 of the FIRMWARE__SYSTEM_STATUS register to see if the firmware is ready
   int counter = 0;
   int  Firmware = readRegister16(VL53L1_FIRMWARE__SYSTEM_STATUS);
@@ -56,60 +58,71 @@ bool VL53L1X::begin()
     if (counter++ == 100) return (false); //Sensor timed out
     wait(.1);
   }
-
+ 
   //Set I2C to 2.8V mode. In this mode 3.3V I2C is allowed.
   uint16_t result = readRegister16(VL53L1_PAD_I2C_HV__EXTSUP_CONFIG);
   result = (result & 0xFE) | 0x01;
   writeRegister16(VL53L1_PAD_I2C_HV__EXTSUP_CONFIG, result);
-
+ 
   //Gets trim resistors from chip
   for (uint16_t i = 0; i < 36; i++) {
       uint8_t regVal = readRegister(i + 1);
-  //    if(configBlock[i] != regVal) printf("thanks for letting me know, %d, %x\r\n", i, regVal);
+ //     if(configBlock[i] != regVal) printf("thanks for letting me know, %d, %x\r\n", i, regVal);
       configBlock[i] = regVal;
   }
+  printf("after being told\r\n");
   startMeasurement();
-
+ // printf("after started \r\n");
   return (true); //Sensor online!
 }
-
+ 
     
 void VL53L1X::startMeasurement(uint8_t offset)
 {
+offset = 0; //Start at a location within the configBlock array
   uint8_t address = 1 + offset; //Start at memory location 0x01, add offset
+  char data_write[2];
   uint8_t leftToSend = sizeof(configBlock) - offset;
   while (leftToSend > 0)
   {
-    uint16_t toSend = I2C_BUFFER_LENGTH - 2; //Max I2C buffer on Arduino is 32, and we need 2 bytes for address
+//    printf("leftToSend = %d \r\n", leftToSend);
+
+    data_write[0] = 0; //MSB of register address 
+    data_write[1] = address; //LSB of register address 
+  //  _i2c.write(_deviceAddress, data_write, 2); 
+    
+    uint8_t toSend = 30; //Max I2C buffer on Arduino is 32, and we need 2 bytes for address
     if (toSend > leftToSend) toSend = leftToSend;
+    for(int x = 0; x < toSend; x++)
+        data_write[x+2] = configBlock[x+address-1];
+    
+    _i2c.write(_deviceAddress, data_write, toSend+2); 
+//    for(int x = 0; x < toSend+2; x++)
+//        printf("%x \t", data_write[x]);
+    //Wire.beginTransmission(deviceAddress);
 
-    _i2c.write(address << 1);//    _i2c.beginTransmission(_deviceAddress);
-    _i2c.write(0); //We're only in lower address space. No MSB needed.
-    _i2c.write(address);
-
-    for (char x = 0 ; x < toSend ; x++){
-      _i2c.write(configBlock[address + x - 1 - offset]);
- //     printf("Data sent %x\r\n", configBlock[address + x - 1 - offset]);
-      }
-
-
- //   _i2c.endTransmission();
+  //  _i2c.write(0); //We're only in lower address space. No MSB needed.
+//    printf("not here\r\n");
+  //  _i2c.write(address);
+//    for (int x = 0 ; x < leftToSend ; x++)
+      
+      
+ //   Wire.endTransmission();
 
     leftToSend -= toSend;
     address += toSend;
-//    printf("I actually went through %d\r\n", leftToSend);
   }
 }
-
+ 
 bool VL53L1X::newDataReady(void)
 {
   int read = readRegister(VL53L1_GPIO__TIO_HV_STATUS);
-  printf("read register %x\r\n", read);
+  printf("read register %x \r\n", read);
   
   if (read != 0x03) return(true); //New measurement!
   return(false); //No new data
 }
-
+ 
 //Reset sensor via software
 void VL53L1X::softReset()
 {
@@ -117,12 +130,12 @@ void VL53L1X::softReset()
   wait(.001); //Driver uses 100us
   writeRegister(VL53L1_SOFT_RESET, 0x01); //Exit reset
 }
-
+ 
 uint16_t VL53L1X::getDistance()
 {
   return (readRegister16(VL53L1_RESULT__FINAL_CROSSTALK_CORRECTED_RANGE_MM_SD0));
 }
-
+ 
 uint16_t VL53L1X::getSignalRate()
 {
   //From vl53l1_api.c line 2041
@@ -130,7 +143,7 @@ uint16_t VL53L1X::getSignalRate()
   //float signalRate = (float)reading/65536.0;
   return (reading);
 }
-
+ 
 void VL53L1X::setDistanceMode(uint8_t mode)
 {
     uint8_t periodA;
@@ -183,7 +196,7 @@ uint8_t VL53L1X::getDistanceMode()
 {
     return _distanceMode;
 }
-
+ 
 uint8_t VL53L1X::getRangeStatus()
 {
 #define VL53L1_DEVICEERROR_VCSELCONTINUITYTESTFAILURE  ( 1)
@@ -208,7 +221,7 @@ uint8_t VL53L1X::getRangeStatus()
 #define VL53L1_DEVICEERROR_EVENTCONSISTENCY            ( 20)
 #define VL53L1_DEVICEERROR_MINSIGNALEVENTCHECK         ( 21)
 #define VL53L1_DEVICEERROR_RANGECOMPLETE_MERGED_PULSE  ( 22)
-
+ 
 #define VL53L1_RANGESTATUS_RANGE_VALID       0 /*!<The Range is valid. */
 #define VL53L1_RANGESTATUS_SIGMA_FAIL        1 /*!<Sigma Fail. */
 #define VL53L1_RANGESTATUS_SIGNAL_FAIL       2 /*!<Signal fail. */
@@ -225,10 +238,10 @@ uint8_t VL53L1X::getRangeStatus()
 #define VL53L1_RANGESTATUS_MIN_RANGE_FAIL     13 /*!<User ROI input is not valid e.g. beyond SPAD Array.*/
 #define VL53L1_RANGESTATUS_RANGE_INVALID      14 /*!<lld returned valid range but negative value ! */
 #define VL53L1_RANGESTATUS_NONE        255 /*!<No Update. */
-
+ 
   //Read status
-  uint8_t measurementStatus = readRegister(VL53L1_RESULT__RANGE_STATUS) & 0x1F;
-
+  uint8_t measurementStatus = (readRegister(VL53L1_RESULT__RANGE_STATUS) & 0x1F);
+  //printf("measurement status %d\r\n", measurementStatus);
   //Convert status from one to another - From vl53l1_api.c
   switch (measurementStatus) {
     case VL53L1_DEVICEERROR_GPHSTREAMCOUNT0READY:
@@ -261,11 +274,10 @@ uint8_t VL53L1X::getRangeStatus()
     default:
       measurementStatus = VL53L1_RANGESTATUS_NONE;
   }
-
+ 
   return measurementStatus;
 }
-
-
+ 
 uint8_t VL53L1X::readRegister(uint16_t registerAddr)
 {
   uint8_t data;
@@ -279,12 +291,13 @@ uint8_t VL53L1X::readRegister(uint16_t registerAddr)
   data=data_read[0];
   return data;
 }
+ 
 uint16_t VL53L1X::readRegister16(uint16_t registerAddr)
 {
   uint8_t data_low;
   uint8_t data_high;
   uint16_t data;
-
+ 
   char data_write[2];
   char data_read[2];
   data_write[0] = (registerAddr >> 8) & 0xFF; //MSB of register address 
@@ -294,11 +307,10 @@ uint16_t VL53L1X::readRegister16(uint16_t registerAddr)
   data_high = data_read[0]; //Read Data from selected register
   data_low = data_read[1]; //Read Data from selected register
   data = (data_high << 8)|data_low;
-
+ 
   return data;
 }
-
-
+ 
 void VL53L1X::writeRegister(uint16_t registerAddr, uint8_t data)
 {
     char data_write[3];
@@ -307,7 +319,7 @@ void VL53L1X::writeRegister(uint16_t registerAddr, uint8_t data)
     data_write[2] = data & 0xFF; 
     _i2c.write(_deviceAddress, data_write, 3); 
 }
-
+ 
 void VL53L1X::writeRegister16(uint16_t registerAddr, uint16_t data)
 {
     char data_write[4];
@@ -317,3 +329,4 @@ void VL53L1X::writeRegister16(uint16_t registerAddr, uint16_t data)
     data_write[3] = data & 0xFF; 
     _i2c.write(_deviceAddress, data_write, 4); 
 }
+ 
