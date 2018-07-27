@@ -30,12 +30,12 @@ VL53L1X::VL53L1X(PinName SDA, PinName SCL) : _i2c(SDA,SCL){
     _deviceAddress = defaultAddress_VL53L1X << 1;
     }
     
-void VL53L1X::begin()
+bool VL53L1X::begin()
 { 
   //Check the device ID
   uint16_t modelID = readRegister16(VL53L1_IDENTIFICATION__MODEL_ID);
   if (modelID != 0xEACC){
-    return;// (false);
+    return (false);
   }
   softReset();
  
@@ -47,7 +47,7 @@ void VL53L1X::begin()
   {
     Firmware = readRegister16(VL53L1_FIRMWARE__SYSTEM_STATUS);
     printf("Firmware = %x\r\n", Firmware);
-    if (counter++ == 100) return; //(false); //Sensor timed out
+    if (counter++ == 100) return (false); //Sensor timed out
     wait(.1);
   }
  
@@ -63,17 +63,16 @@ void VL53L1X::begin()
   }
   
   startMeasurement();
-  printf("It Blinks!!! \r\n");
-//  return (true); //Sensor online!
+  return (true); //Sensor online!
 
 }
  
     
 void VL53L1X::startMeasurement(uint8_t offset)
 {
-offset = 0; //Start at a location within the configBlock array
+  offset = 0; //Start at a location within the configBlock array
   uint8_t address = 1 + offset; //Start at memory location 0x01, add offset
-  char data_write[2];
+  char data_write[32];
   uint8_t leftToSend = sizeof(configBlock) - offset;
   while (leftToSend > 0)
   {
@@ -97,7 +96,6 @@ offset = 0; //Start at a location within the configBlock array
 bool VL53L1X::newDataReady(void)
 {
   int read = readRegister(VL53L1_GPIO__TIO_HV_STATUS);
-  
   if (read != 0x03) return(true); //New measurement!
   return(false); //No new data
 }
